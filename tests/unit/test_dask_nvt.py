@@ -19,12 +19,12 @@ import math
 
 import cudf
 import cupy
-import pytest
-
 import dask_cudf
-import nvtabular.ops as ops
+import pytest
 from dask.dataframe import assert_eq
 from dask.distributed import Client, LocalCluster
+
+import nvtabular.ops as ops
 from nvtabular import DaskDataset, Workflow
 from tests.conftest import mycols_pq
 
