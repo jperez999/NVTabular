@@ -90,7 +90,7 @@ cols = ["label"] + cont_names + cat_names
 print("Creating Workflow Object")
 proc = Workflow(cat_names=cat_names, cont_names=cont_names, label_name=["label"])
 proc.add_feature([ZeroFill(replace=True), LogOp(replace=True)])
-proc.add_preprocess(Normalize(replace=True))
+#proc.add_preprocess(Normalize(replace=True))
 if int(args.freq_thresh) == 0:
     proc.add_preprocess(Categorify(replace=True))
 else:

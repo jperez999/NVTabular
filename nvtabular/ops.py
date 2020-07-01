@@ -573,6 +573,27 @@ class Encoder(StatOperator):
         self.categories = {}
         return
 
+class Binarization(TransformOperator):
+
+    default_in = CONT
+    default_out = CONT
+
+    def __init__(self, threshold = None, columns = None, preprocessing=True, replace=True):
+        super().__init__(columns=columns, preprocessing=preprocessing, replace=replace)
+        self.threshold = threshold
+
+    def op_logic(self, gdf, target_columns, stats_context=None):
+        gdf = gdf[target_columns]
+        for col in target_columns:
+            if not col in self.threshold:
+                raise ValueError(f"target column {col} does not have a threshold")
+            threshold = self.threshold[col]
+            col = gdf[col]
+            col[col > threshold] = 1
+            col[col <= threshold] = 0
+        gdf.columns = [f"{col}_{self._id}" for col in gdf.columns]
+        return gdf
+
 
 class ZeroFill(TransformOperator):
     """
@@ -644,7 +665,7 @@ class LogOp(TransformOperator):
         cont_names = target_columns
         if not cont_names:
             return gdf
-        new_gdf = np.log(gdf[cont_names].astype(np.float32) + 1)
+        new_gdf = np.log(gdf[cont_names].astype(np.float32) + 3)
         new_cols = [f"{col}_{self._id}" for col in new_gdf.columns]
         new_gdf.columns = new_cols
         return new_gdf

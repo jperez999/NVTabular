@@ -64,7 +64,6 @@ def test_minmax(tmpdir, client, df, dataset, gpu_memory_frac, engine, op_columns
         assert name_max == processor.stats["maxs"]["name-string"]
         assert y_min == processor.stats["mins"]["y"]
 
-
 @pytest.mark.parametrize("gpu_memory_frac", [0.01, 0.1])
 @pytest.mark.parametrize("engine", ["parquet", "csv", "csv-no-header"])
 @pytest.mark.parametrize("op_columns", [["x"], None])
@@ -129,6 +128,23 @@ def test_encoder(tmpdir, df, dataset, gpu_memory_frac, engine, op_columns, clien
     cats_expected1 = df["name-string"].unique().values_to_string()
     cats1 = get_cats(processor, "name-string")
     assert cats1 == ["None"] + cats_expected1
+
+@pytest.mark.parametrize("engine", ["parquet"])
+def test_binarization(tmpdir, df, dataset, engine):
+    threshold = {
+                "x": 0.3,
+                "y": 0.3,
+            }
+    cont_names = ["x", "y"]
+    columns_ctx = {}
+    columns_ctx["continuous"] = {}
+    columns_ctx["continuous"]["base"] = cont_names
+    
+    op = nvt.ops.Binarization(threshold = threshold)
+
+    for gdf in dataset.to_iter():
+        new_gdf = op.apply_op(gdf, columns_ctx, "continuous")
+        assert(new_gdf[cont_names].isin([0.0, 1.0]))
 
 
 @pytest.mark.parametrize("gpu_memory_frac", [0.01, 0.1])

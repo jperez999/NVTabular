@@ -29,6 +29,46 @@ import nvtabular.ops as ops
 from tests.conftest import allcols_csv, get_cats, mycols_csv, mycols_pq
 
 
+<<<<<<< Updated upstream
+=======
+
+
+@pytest.mark.parametrize("gpu_memory_frac", [0.01, 0.1])
+@pytest.mark.parametrize("engine", ["parquet", "csv", "csv-no-header"])
+@pytest.mark.parametrize("dump", [True, False])
+@pytest.mark.parametrize("op_columns", [["x", "y"], None])
+def test_gpu_workflow_api_bin(tmpdir, df, dataset, gpu_memory_frac, engine, dump, op_columns):
+    cat_names = ["name-cat", "name-string"] if engine == "parquet" else ["name-string"]
+    cont_names = ["x", "y", "id"]
+    label_name = ["label"]
+    thresholds = {
+                "x": 0.1,
+                "y": 0.1,
+                "id": 0.1,
+            }
+    processor = nvt.Workflow(cat_names=cat_names, cont_names=cont_names, label_name=label_name,)
+    processor.add_feature([ops.ZeroFill(columns=op_columns), ops.LogOp()])
+    processor.add_feature(ops.Binarization(threshold=thresholds))
+    processor.finalize()
+    processor.update_stats(dataset)
+    # Write to new "shuffled" and "processed" dataset
+    processor.write_to_dataset(tmpdir, dataset, nfiles=10, shuffle=True, apply_ops=True)
+    data_itr = nvtabular.io.GPUDatasetIterator(
+        glob.glob(str(tmpdir) + "/ds_part.*.parquet"),
+        use_row_groups=True,
+        gpu_memory_frac=gpu_memory_frac,
+    )
+    for gdf in data_itr:
+        if not op_columns:
+            assert(gdf[cont_names].isin([0.0, 1.0]))
+        else:
+            tar = ["x", "y"]
+            assert(gdf[tar].isin([0.0, 1.0]))
+
+
+
+@cleanup
+>>>>>>> Stashed changes
 @pytest.mark.parametrize("gpu_memory_frac", [0.01, 0.1])
 @pytest.mark.parametrize("engine", ["parquet", "csv", "csv-no-header"])
 @pytest.mark.parametrize("dump", [True, False])
