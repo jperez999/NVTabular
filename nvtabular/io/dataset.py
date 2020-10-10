@@ -338,8 +338,12 @@ class DataFrameIter:
         return len(self.indices)
 
     def __iter__(self):
+        pi_file = open('part_idx.txt', "w")
         for i in self.indices:
             part = self._ddf.get_partition(i)
+            part["part_idx"] = i
+            part["part_idx"] = part["part_idx"].astype(np.float32)
+            pi_file.write(f"{i} {part.shape[0]}")
             if self.columns:
                 yield part[self.columns].compute(scheduler="synchronous")
             else:

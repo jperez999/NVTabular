@@ -14,8 +14,9 @@
 # limitations under the License.
 #
 import torch
+import torch.distributed as dist
 from torch.utils.dlpack import from_dlpack
-
+import cupy as cp
 from nvtabular.ops import _get_embedding_order
 
 from .backend import DataLoader
@@ -55,9 +56,10 @@ class TorchAsyncItr(torch.utils.data.IterableDataset, DataLoader):
         batch_size=1,
         shuffle=False,
         parts_per_chunk=1,
-        devices=None,
+        device=None,
+        callbacks={},
     ):
-        DataLoader.__init__(
+        self.dl = DataLoader.__init__(
             self,
             dataset,
             cats,
@@ -67,11 +69,55 @@ class TorchAsyncItr(torch.utils.data.IterableDataset, DataLoader):
             shuffle,
             parts_per_chunk=parts_per_chunk,
             workflows=None,
-            devices=devices,
+            device=device,
+            callbacks=callbacks
         )
 
+    
+    def is_dist_avail_and_initialized(self):
+        if not dist.is_available():
+            return False
+        if not dist.is_initialized():
+            return False
+        return True
+
+
+    def get_world_size(self):
+        if not self.is_dist_avail_and_initialized():
+            return 1
+        return dist.get_world_size()
+
+
+    def is_distributed(self) -> bool:
+        return self.get_world_size() > 1
+
+
+    def get_rank(self):
+        if not self.is_dist_avail_and_initialized():
+            return 0
+        return dist.get_rank()
+
+
+    def get_local_rank(self):
+        if not self.is_dist_avail_and_initialized():
+            return 0
+        return int(os.environ['LOCAL_RANK'])
+
+
+    def is_main_process(self):
+        return self.get_rank() == 0
+
+        
     def __iter__(self):
-        return DataLoader.__iter__(self)
+        global_size = self.get_world_size()
+        rank = self.get_rank()
+        # global_size, rank
+        indices = self.indices.tolist()
+        # grab correct subset
+        offset = int(len(indices) / global_size)
+        start = int(rank * offset)
+        indices = indices[start: start + offset]
+        return DataLoader.__iter__(self, indices=indices)
 
     def _get_device_ctx(self, dev):
         return torch.cuda.device("cuda:{}".format(dev))
@@ -80,15 +126,20 @@ class TorchAsyncItr(torch.utils.data.IterableDataset, DataLoader):
         if gdf.empty:
             return
         dl_pack = gdf.to_dlpack()
-        tens = from_dlpack(dl_pack).type(dtype)
+#         tens = from_dlpack(dl_pack).type(dtype)
+        tens = from_dlpack(dl_pack)
+        tens = tens.type(dtype)
         return tens
 
     # TODO: do we need casting or can we replace this with
     # parent class version?
     def _create_tensors(self, gdf):
+        cont_names = self.cont_names
+#         if "part_idx" in gdf.columns:
+#             cont_names = cont_names + ["part_idx"]
         gdf_cats, gdf_conts, gdf_label = (
             gdf[_get_embedding_order(self.cat_names)],
-            gdf[self.cont_names],
+            gdf[cont_names],
             gdf[self.label_names],
         )
         del gdf

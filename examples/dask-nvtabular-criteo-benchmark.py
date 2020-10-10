@@ -164,6 +164,7 @@ def main(args):
             on_host=not args.cats_on_device,
         )
     )
+    processor.add_preprocess(ops.Normalize())
     processor.finalize()
 
     dataset = Dataset(data_path, "parquet", part_size=part_size)

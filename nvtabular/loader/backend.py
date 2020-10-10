@@ -46,12 +46,13 @@ class ChunkQueue:
         before checking for errors and trying again
     """
 
-    def __init__(self, qsize, num_parts=1, shuffle=False, put_wait=1e-6):
+    def __init__(self, qsize, num_parts=1, shuffle=False, put_wait=1e-6, callbacks={}):
         self.num_parts = num_parts
         self.shuffle = shuffle
         self.put_wait = put_wait
-        self.q_out = queue.Queue(qsize)
+        self.q_out = queue.Queue(qsize + 2)
         self._stop_event = threading.Event()
+        self.callbacks = callbacks
 
     @property
     def stopped(self):
@@ -88,31 +89,36 @@ class ChunkQueue:
                 if len(current) > 0:
                     yield current
                 break
-
+            #write out partition index for ordering, num rows in partition
+            if "PART_CHUNK" in self.callbacks:
+                for cb in self.callbacks["PART_CHUNK"]:
+                    cb._exec(value)
             current.append(value)
             if len(current) == self.num_parts:
                 yield current
                 current = []
 
-    def load_chunks(self, dev, dataloader):
+    def load_chunks(self, dev, dataloader, indices=[]):
         try:
-            indices = dataloader._gather_indices_for_dev(dev)
+            if not indices:
+                indices = dataloader._gather_indices_for_dev(dev)
             itr = iter(dataloader.data.to_iter(indices=indices))
             with dataloader._get_device_ctx(dev):
                 spill = None
                 for chunks in self.batch(itr):
                     if self.stopped:
                         return
-
                     if spill and not spill.empty:
                         chunks.insert(0, spill)
-
                     chunks = cudf.core.reshape.concat(chunks)
                     chunks.reset_index(drop=True, inplace=True)
                     chunks, spill = self.get_batch_div_chunk(chunks, dataloader.batch_size)
                     if self.shuffle:
-                        _shuffle_gdf(chunks)
-
+                        chunks = _shuffle_gdf(chunks)
+                    # write out partition indexes of each row (series) to file
+                    if "CHUNK_SHUFFLE" in self.callbacks:
+                        for cb in self.callbacks["CHUNK_SHUFFLE"]:
+                            cb._exec(chunks)
                     num_samples = len(chunks)
                     if num_samples > 0:
                         for workflow in dataloader.workflows:
@@ -123,6 +129,7 @@ class ChunkQueue:
 
                         # split them into batches and map to
                         # the framework-specific output format
+                        
                         chunks = [dataloader._create_batch(x, num_samples) for x in chunks]
                         chunks = zip(*chunks)
                         chunks = [dataloader._handle_tensors(*tensors) for tensors in chunks]
@@ -195,12 +202,13 @@ class DataLoader:
         shuffle,
         parts_per_chunk=1,
         workflows=None,
-        devices=None,
+        device=None,
+        callbacks=[],
     ):
         self.data = dataset
         self.indices = cp.arange(dataset.to_ddf().npartitions)
 
-        devices = devices or [0]
+        device = device or 0
         workflows = workflows or []
         self.workflows = _validate_workflows(workflows, cat_names, cont_names, label_names)
 
@@ -209,9 +217,10 @@ class DataLoader:
         self.label_names = label_names
         self.batch_size = batch_size
         self.shuffle = shuffle
-        self.devices = devices
+        self.device = device
+        self.callbacks=callbacks
 
-        self._buff = ChunkQueue(len(devices), num_parts=parts_per_chunk, shuffle=shuffle)
+        self._buff = ChunkQueue(2, num_parts=parts_per_chunk, shuffle=shuffle, callbacks=callbacks)
         self._batch_itr = None
         self._workers = None
 
@@ -236,29 +245,30 @@ class DataLoader:
         self._batch_itr = None
 
     def _gather_indices_for_dev(self, dev):
-        per_worker = _num_steps(len(self.indices), len(self.devices))
-        worker_id = self.devices.index(dev)
+        per_worker = _num_steps(len(self.indices), 1)
+#         worker_id = self.devices.index(dev)
+        worker_id = 0
         start = worker_id * per_worker
         return self.indices[start : start + per_worker].tolist()
 
-    def __iter__(self):
+    def __iter__(self, indices=[]):
         self.stop()
         if self._buff.stopped:
             self._buff.start()
 
         # shuffle partition indices to bring disparate
         # parts of the dataset "close" to one another
+        self.indices = self.indices if not indices else indices
         if self.shuffle:
-            cp.random.shuffle(self.indices)
+            import random
+            random.shuffle(self.indices)
 
         # build and start new threads for loading and
         # concatenating data
         self._workers = []
-        for dev in self.devices:
-            t = threading.Thread(target=self._buff.load_chunks, args=(dev, self))
-            t.daemon = True
-            t.start()
-            self._workers.append(t)
+        t = threading.Thread(target=self._buff.load_chunks, args=(self.device, self,), kwargs={"indices": self.indices})
+        t.start()
+        self._workers.append(t)
         return self
 
     def __next__(self):
@@ -306,6 +316,9 @@ class DataLoader:
             # the first batch
             self._fetch_chunk()
             batch = next(self._batch_itr)
+        if "BATCH_GET" in self.callbacks:
+            for cb in self.callbacks["BATCH_GET"]:
+                cb._exec(batch)
         return batch
 
     def map(self, workflow):

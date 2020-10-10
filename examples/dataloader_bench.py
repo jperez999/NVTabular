@@ -77,7 +77,7 @@ def main(args):
             }
         else:
             kwargs = {"cat_names": cat_names, "cont_names": cont_names, "label_names": [label_name]}
-        dataset = DataLoader(train_set, batch_size=batch_size, shuffle=args.shuffle, **kwargs)
+        dataset = DataLoader(train_set, batch_size=batch_size, shuffle=args.shuffle, **kwargs, )
 
         samples_seen = 0
         start_time = time.time()
