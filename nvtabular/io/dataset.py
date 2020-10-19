@@ -173,8 +173,10 @@ class Dataset:
         part_mem_fraction=None,
         storage_options=None,
         dtypes=None,
+        callbacks={},
         **kwargs,
     ):
+        self.callbacks = callbacks
         self.dtypes = dtypes
         if isinstance(path_or_source, (dask.dataframe.DataFrame, cudf.DataFrame, pd.DataFrame)):
             # User is passing in a <dask.dataframe|cudf|pd>.DataFrame
@@ -309,7 +311,7 @@ class Dataset:
             columns = [columns]
 
         return DataFrameIter(
-            self.to_ddf(columns=columns, shuffle=shuffle, seed=seed), indices=indices
+            self.to_ddf(columns=columns, shuffle=shuffle, seed=seed), indices=indices, callbacks=self.callbacks
         )
 
     @property
@@ -329,10 +331,11 @@ def _set_dtypes(chunk, dtypes):
 
 
 class DataFrameIter:
-    def __init__(self, ddf, columns=None, indices=None):
+    def __init__(self, ddf, columns=None, indices=None, callbacks={}):
         self.indices = indices if isinstance(indices, list) else range(ddf.npartitions)
         self._ddf = ddf
         self.columns = columns
+        self.callbacks = callbacks
 
     def __len__(self):
         return len(self.indices)
@@ -341,8 +344,11 @@ class DataFrameIter:
         pi_file = open('part_idx.txt', "w")
         for i in self.indices:
             part = self._ddf.get_partition(i)
-            part["part_idx"] = i
-            part["part_idx"] = part["part_idx"].astype(np.float32)
+            if "DDF_ITER" in self.callbacks:
+                for cb in self.callbacks["DDF_ITER"]:
+                    part = cb._exec(part)
+#             part["part_idx"] = i
+#             part["part_idx"] = part["part_idx"].astype(np.float32)
             pi_file.write(f"{i} {part.shape[0]}")
             if self.columns:
                 yield part[self.columns].compute(scheduler="synchronous")
