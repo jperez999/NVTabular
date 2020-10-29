@@ -22,8 +22,10 @@ import cudf
 import dask
 import dask_cudf
 import numpy as np
+import pandas as pd
 import pytest
 from dask.dataframe import assert_eq
+from dask.dataframe.io.demo import names as name_list
 
 import nvtabular as nvt
 import nvtabular.io
@@ -261,3 +263,97 @@ def test_mulifile_parquet(tmpdir, dataset, df, engine, num_io_threads, nfiles, s
         df[columns].sort_values(["x", "y"]),
         check_index=False,
     )
+
+
+@pytest.mark.parametrize("freq_threshold", [0, 1, 2])
+def test_parquet_lists(tmpdir, freq_threshold):
+    df = cudf.DataFrame(
+        {
+            "Authors": [["User_A"], ["User_A", "User_E"], ["User_B", "User_C"], ["User_C"]],
+            "Engaging User": ["User_B", "User_B", "User_A", "User_D"],
+            "Post": [1, 2, 3, 4],
+        }
+    )
+
+    input_dir = str(tmpdir.mkdir("input"))
+    output_dir = str(tmpdir.mkdir("output"))
+    filename = os.path.join(input_dir, "test.parquet")
+    df.to_parquet(filename)
+
+    cat_names = ["Authors", "Engaging User"]
+    cont_names = []
+    label_name = ["Post"]
+
+    processor = nvt.Workflow(cat_names=cat_names, cont_names=cont_names, label_name=label_name)
+    processor.add_preprocess(ops.Categorify(out_path=str(output_dir)))
+    processor.finalize()
+    processor.apply(
+        nvt.Dataset(filename),
+        output_format="parquet",
+        output_path=output_dir,
+    )
+
+    out_paths = glob.glob(os.path.join(output_dir, "*.parquet"))
+    print(out_paths)
+    df_out = cudf.read_parquet(out_paths)
+
+    assert df_out["Authors"].to_arrow().to_pylist() == [[1], [1, 4], [2, 3], [3]]
+
+
+@pytest.mark.parametrize("part_size", [None, "1KB"])
+@pytest.mark.parametrize("size", [100, 5000])
+@pytest.mark.parametrize("nfiles", [1, 2])
+def test_avro_basic(tmpdir, part_size, size, nfiles):
+
+    # Require uavro and fastavro library.
+    # Note that fastavro is only required to write
+    # avro files for testing, while uavro is actually
+    # used by AvroDatasetEngine.
+    fa = pytest.importorskip("fastavro")
+    pytest.importorskip("uavro")
+
+    # Define avro schema
+    schema = fa.parse_schema(
+        {
+            "name": "avro.example.User",
+            "type": "record",
+            "fields": [
+                {"name": "name", "type": "string"},
+                {"name": "age", "type": "int"},
+            ],
+        }
+    )
+
+    # Write avro dataset with two files.
+    # Collect block and record (row) count while writing.
+    nblocks = 0
+    nrecords = 0
+    paths = [os.path.join(str(tmpdir), f"test.{i}.avro") for i in range(nfiles)]
+    records = []
+    for path in paths:
+        names = np.random.choice(name_list, size)
+        ages = np.random.randint(18, 100, size)
+        data = [{"name": names[i], "age": ages[i]} for i in range(size)]
+        with open(path, "wb") as f:
+            fa.writer(f, schema, data)
+        with open(path, "rb") as fo:
+            avro_reader = fa.block_reader(fo)
+            for block in avro_reader:
+                nrecords += block.num_records
+                nblocks += 1
+                records += list(block)
+    if nfiles == 1:
+        paths = paths[0]
+
+    # Read back with dask.dataframe
+    df = nvt.Dataset(paths, part_size=part_size, engine="avro").to_ddf()
+
+    # Check basic length and partition count
+    if part_size == "1KB":
+        assert df.npartitions == nblocks
+    assert len(df) == nrecords
+
+    # Full comparison
+    expect = pd.DataFrame.from_records(records)
+    expect["age"] = expect["age"].astype("int32")
+    assert_eq(df.compute().reset_index(drop=True), expect)

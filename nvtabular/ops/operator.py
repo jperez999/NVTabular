@@ -42,6 +42,6 @@ class Operator:
         for tar in target_cols:
             if tar in cols_ctx[cols_grp].keys():
                 tar_cols = tar_cols + cols_ctx[cols_grp][tar]
-        if len(tar_cols) < 1:
+        if len(tar_cols) < 1 and cols_grp in cols_ctx:
             tar_cols = cols_ctx[cols_grp]["base"]
         return tar_cols

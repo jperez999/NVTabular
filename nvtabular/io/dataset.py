@@ -146,7 +146,7 @@ class Dataset:
         directories are not yet supported).
     engine : str or DatasetEngine
         DatasetEngine object or string identifier of engine. Current
-        string options include: ("parquet", "csv"). This argument
+        string options include: ("parquet", "csv", "avro"). This argument
         is ignored if path_or_source is a DataFrame type.
     part_size : str or int
         Desired size (in bytes) of each Dask partition.
@@ -227,6 +227,17 @@ class Dataset:
                     )
                 elif engine == "csv":
                     self.engine = CSVDatasetEngine(
+                        paths, part_size, storage_options=storage_options, **kwargs
+                    )
+                elif engine == "avro":
+                    try:
+                        from .avro import AvroDatasetEngine
+                    except ImportError:
+                        raise RuntimeError(
+                            "Failed to import AvroDatasetEngine. Make sure uavro is installed."
+                        )
+
+                    self.engine = AvroDatasetEngine(
                         paths, part_size, storage_options=storage_options, **kwargs
                     )
                 else:
@@ -341,15 +352,8 @@ class DataFrameIter:
         return len(self.indices)
 
     def __iter__(self):
-        pi_file = open('part_idx.txt', "w")
         for i in self.indices:
             part = self._ddf.get_partition(i)
-            if "DDF_ITER" in self.callbacks:
-                for cb in self.callbacks["DDF_ITER"]:
-                    part = cb._exec(part)
-#             part["part_idx"] = i
-#             part["part_idx"] = part["part_idx"].astype(np.float32)
-            pi_file.write(f"{i} {part.shape[0]}")
             if self.columns:
                 yield part[self.columns].compute(scheduler="synchronous")
             else:

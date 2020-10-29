@@ -35,4 +35,5 @@ from .normalize import Normalize, NormalizeMinMax
 from .operator import ALL, CAT, CONT, Operator
 from .stat_operator import StatOperator
 from .target_encoding import TargetEncoding
+from .lambda_class_op import LambdaClassOp
 from .transform_operator import DFOperator, TransformOperator
