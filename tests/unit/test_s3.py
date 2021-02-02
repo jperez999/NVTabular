@@ -47,6 +47,7 @@ def s3(aws_credentials):
 
 @pytest.mark.parametrize("engine", ["parquet", "csv"])
 def test_s3_dataset(s3, paths, engine, df):
+    import dask_cuda
     # create a mocked out bucket here
     bucket = "testbucket"
     s3.create_bucket(Bucket=bucket)
@@ -59,7 +60,8 @@ def test_s3_dataset(s3, paths, engine, df):
         s3_paths.append(s3_path)
 
     # create a basic s3 dataset
-    dataset = nvt.Dataset(s3_paths)
+    dataset = dask_cuda.read_parquet(s3_paths)
+#     dataset = nvt.Dataset(s3_paths)
 
     # make sure the iteration API works
     columns = mycols_pq if engine == "parquet" else mycols_csv
