@@ -245,16 +245,25 @@ def test_validater(tmpdir, batch_size):
         label_names=["label"],
         shuffle=False,
     )
+    
+    dataloader2 = tf_dataloader.KerasSequenceLoader(
+        nvt.Dataset(gdf),
+        batch_size=batch_size,
+        cat_names=[],
+        cont_names=["a"],
+        label_names=["label"],
+        shuffle=False,
+    )
 
     input = tf.keras.Input(name="a", dtype=tf.float32, shape=(1,))
     x = tf.keras.layers.Dense(128, "relu")(input)
     x = tf.keras.layers.Dense(1, activation="softmax")(x)
 
     model = tf.keras.Model(inputs=input, outputs=x)
-    model.compile("sgd", "binary_crossentropy", metrics=["accuracy", tf.keras.metrics.AUC()])
+    model.compile("sgd", "binary_crossentropy", run_eagerly=True, metrics=["accuracy", tf.keras.metrics.AUC()])
 
-    validater = tf_dataloader.KerasSequenceValidater(dataloader)
-    model.fit(dataloader, epochs=2, verbose=0, callbacks=[validater])
+    validater = tf_dataloader.KerasSequenceValidater(dataloader2)
+    model.fit(dataloader, epochs=1, verbose=0)#, callbacks=[validater])
 
     predictions, labels = [], []
     for X, y_true in dataloader:

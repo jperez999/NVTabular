@@ -244,9 +244,13 @@ class KerasSequenceLoader(tf.keras.utils.Sequence, DataLoader):
         with Keras model.fit. Does not leverage
         passed idx in any way
         """
-        try:
+        #try:
+        print(idx, DataLoader.__len__(self))
+        if idx < DataLoader.__len__(self):
             return DataLoader.__next__(self)
-        except StopIteration:
+        else:
+            print("hitting stop")
+        #except StopIteration:
             # TODO: I would like to do a check for idx == 0
             # here, but that requires that tf.keras.Model.fit
             # be called with shuffle=False, and that seems
@@ -255,8 +259,8 @@ class KerasSequenceLoader(tf.keras.utils.Sequence, DataLoader):
             # is probably irresponsible, so worth thinking
             # of something better here
             # return StopIteration
-            DataLoader.__iter__(self)
-            return DataLoader.__next__(self)
+            #DataLoader.__iter__(self)
+            #return DataLoader.__next__(self)
 
     @contextlib.contextmanager
     def _get_device_ctx(self, dev):
@@ -355,7 +359,8 @@ class KerasSequenceValidater(tf.keras.callbacks.Callback):
         self.dataloader = dataloader
 
     def on_epoch_end(self, epoch, logs={}):
-        for X, y_true in self.dataloader:
+        for idx, (X, y_true) in enumerate(self.dataloader):
+            print(f"cb idx: {idx}")
             y_pred = self.model(X)
 
             # TODO: how do we want to handle the multi-output case?

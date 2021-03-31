@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+import math
 import queue
 import threading
 import warnings
@@ -27,8 +28,7 @@ from nvtabular.ops import _get_embedding_order
 
 
 def _num_steps(num_samples, step_size):
-    return (num_samples - 1) // step_size + 1
-
+    return math.ceil(num_samples / step_size)
 
 class ChunkQueue:
     """This class takes partitions (parts) from an NVTabular dataset
@@ -275,18 +275,23 @@ class DataLoader:
         # need this because tf.keras.Model.fit will
         # call next() cold
         if self._workers is None:
+            print("called init")
             DataLoader.__iter__(self)
 
         # get the first chunks
         if self._batch_itr is None:
+            print("called batch itr")
             self._fetch_chunk()
 
         # try to iterate through existing batches
         try:
+            import pdb; pdb.set_trace()
             batch = next(self._batch_itr)
         except StopIteration:
             # anticipate any more chunks getting created
             # if not, raise the StopIteration
+            #self._fetch_chunk()
+            #batch = next(self._batch_itr)
             if not self._working and self._buff.empty:
                 self._workers = None
                 self._batch_itr = None
@@ -376,7 +381,7 @@ class DataLoader:
                         elif len(off0.shape) == 2:
                             start, stop = off0[0, 0], off1[0, 0]
                         else:
-                            print(off0, off1)
+                            print(f"grab scalars: {off0}, {off1}")
                             raise ValueError
 
                         value = values[start:stop]
