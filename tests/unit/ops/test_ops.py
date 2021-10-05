@@ -57,6 +57,7 @@ def test_normalize_minmax(tmpdir, dataset, gpu_memory_frac, engine, op_columns, 
     processor.fit(dataset)
     new_gdf = processor.transform(dataset).to_ddf().compute()
     new_gdf.index = df.index  # Make sure index is aligned for checks
+    import pdb; pdb.set_trace()
     for col in op_columns:
         col_min = df[col].min()
         assert col_min == pytest.approx(processor.output_node.op.mins[col], 1e-2)
@@ -319,6 +320,18 @@ def test_normalize(tmpdir, df, dataset, gpu_memory_frac, engine, op_columns):
     cupy_outputs = cont_features.op.transform(ColumnSelector(op_columns), cupy_inputs)
     for col in op_columns:
         assert np.allclose(cupy_outputs[col], new_gdf[col].values)
+
+
+@pytest.mark.parametrize("engine", ["parquet", "csv", "csv-no-header"])
+@pytest.mark.parametrize("op_columns", [["x"], ["x", "y"]])
+def test_add_metadata(tmpdir, df, dataset, gpu_memory_frac, engine, op_columns):
+    cont_features = op_columns >> ops.Normalize() >> ops.AddMetadata(tags=["NEW_TAG"])
+    processor = nvtabular.Workflow(cont_features)
+    processor.fit(dataset)
+
+    new_gdf = processor.transform(dataset).to_ddf().compute()
+    for col in op_columns:
+        assert "NEW_TAG" in processor.output_schema.column_schemas[col].tags
 
 
 @pytest.mark.parametrize("cpu", _CPU)

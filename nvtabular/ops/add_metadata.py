@@ -13,7 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-from .operator import Operator
+from .operator import Operator, ColumnSelector
+from nvtabular.dispatch import DataFrameType
 
 
 class AddMetadata(Operator):
@@ -25,6 +26,9 @@ class AddMetadata(Operator):
     def __init__(self, tags=None, properties=None):
         self.tags = tags or []
         self.properties = properties or {}
+
+    def transform(self, col_selector: ColumnSelector, df: DataFrameType) -> DataFrameType:
+        return df
 
     def output_tags(self):
         return self.tags
